@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'screens/ticket_list_screen.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Hive.initFlutter(); // Inicializa Hive en Flutter
+
   runApp(const MyApp());
 }
 
@@ -11,7 +15,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Lavapp',
+      title: 'LavApp',
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),

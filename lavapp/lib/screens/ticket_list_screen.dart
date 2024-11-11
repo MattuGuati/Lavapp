@@ -16,11 +16,13 @@ class _TicketListScreenState extends State<TicketListScreen> {
   @override
   void initState() {
     super.initState();
-    _loadTickets();
+    dbService.initializeHive().then((_) {
+      _loadTickets();
+    });
   }
 
   Future<void> _loadTickets() async {
-    final data = await dbService.getAllTickets();
+    final data = dbService.getAllTickets();
     setState(() {
       tickets = data;
     });
@@ -40,7 +42,7 @@ class _TicketListScreenState extends State<TicketListScreen> {
     }
   }
 
-  void _changeTicketStatus(int index) {
+  void _changeTicketStatus(int index) async {
     final estados = ['Pendiente', 'En Proceso', 'Entregado'];
     final currentIndex = estados.indexOf(tickets[index]['estado']);
     final newIndex = (currentIndex + 1) % estados.length;
@@ -49,9 +51,12 @@ class _TicketListScreenState extends State<TicketListScreen> {
       tickets[index]['estado'] = estados[newIndex];
     });
 
+    await dbService.updateTicketStatus(index, estados[newIndex]);
+
     if (tickets[index]['estado'] == 'Entregado') {
+      // Retraso de 5 segundos antes de eliminar el ticket
       Future.delayed(const Duration(seconds: 5), () async {
-        await dbService.deleteTicket(tickets[index]['id']);
+        await dbService.deleteTicket(index);
         setState(() {
           tickets.removeAt(index);
         });
@@ -60,17 +65,17 @@ class _TicketListScreenState extends State<TicketListScreen> {
   }
 
   void _deleteTicket(int index) async {
-    await dbService.deleteTicket(tickets[index]['id']);
+    await dbService.deleteTicket(index);
     setState(() {
       tickets.removeAt(index);
     });
   }
 
-  void _consultarClientes() async {
-    final data = await dbService.getAllTickets();
-    setState(() {
-      tickets = data;
-    });
+  void _consultarCliente() {
+    // Lógica para consultar cliente
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Consultar cliente: Funcionalidad pendiente"))
+    );
   }
 
   @override
@@ -88,6 +93,13 @@ class _TicketListScreenState extends State<TicketListScreen> {
           icon: const Icon(Icons.menu, color: Colors.black),
           onPressed: () {},
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.search),
+            onPressed: _consultarCliente, // Llama a la función de consulta
+            color: Colors.blue,
+          ),
+        ],
       ),
       body: tickets.isEmpty
           ? const Center(
@@ -127,17 +139,11 @@ class _TicketListScreenState extends State<TicketListScreen> {
                       ),
                       PopupMenuButton(
                         onSelected: (value) {
-                          if (value == 'edit') {
-                            // Lógica para editar
-                          } else if (value == 'delete') {
+                          if (value == 'delete') {
                             _deleteTicket(index);
                           }
                         },
                         itemBuilder: (context) => [
-                          const PopupMenuItem(
-                            value: 'edit',
-                            child: Text('Editar'),
-                          ),
                           const PopupMenuItem(
                             value: 'delete',
                             child: Text('Eliminar'),
@@ -149,22 +155,10 @@ class _TicketListScreenState extends State<TicketListScreen> {
                 );
               },
             ),
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FloatingActionButton.extended(
-            onPressed: _consultarClientes, // Consultar en la base de datos
-            icon: const Icon(Icons.search, color: Colors.white),
-            label: const Text("Consultar Cliente", style: TextStyle(color: Colors.white)),
-            backgroundColor: Colors.blue,
-          ),
-          const SizedBox(height: 8),
-          FloatingActionButton(
-            backgroundColor: Colors.blue,
-            onPressed: _addNewTicket,
-            child: const Icon(Icons.add, color: Colors.white),
-          ),
-        ],
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: Colors.blue,
+        onPressed: _addNewTicket,
+        child: const Icon(Icons.add, color: Colors.white),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );

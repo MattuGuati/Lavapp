@@ -30,6 +30,19 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+# Ignorar carpetas de compilación
+build/
+.dart_tool/
+.packages
+.idea/
+.flutter-plugins
+.flutter-plugins-dependencies
+.flutter
+
+# Archivos sensibles
+android/key.properties
+ios/Runner/GoogleService-Info.plist
+firebase_private_key.json
 
 # Symbolication related
 app.*.symbols
