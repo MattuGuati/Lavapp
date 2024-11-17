@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:hive/hive.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/database_service.dart';
 import 'new_ticket_screen.dart';
 
@@ -12,13 +14,13 @@ class TicketListScreen extends StatefulWidget {
 class _TicketListScreenState extends State<TicketListScreen> {
   List<Map<String, dynamic>> tickets = [];
   final dbService = DatabaseService();
+  int costPerBag = 500;
 
   @override
   void initState() {
     super.initState();
-    dbService.initializeHive().then((_) {
-      _loadTickets();
-    });
+    _loadTickets();
+    _loadPreferences();
   }
 
   Future<void> _loadTickets() async {
@@ -28,10 +30,19 @@ class _TicketListScreenState extends State<TicketListScreen> {
     });
   }
 
+  Future<void> _loadPreferences() async {
+    final box = await Hive.openBox('preferences');
+    setState(() {
+      costPerBag = box.get('costPerBag', defaultValue: 500);
+    });
+  }
+
   Future<void> _addNewTicket() async {
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const NewTicketScreen()),
+      MaterialPageRoute(
+        builder: (context) => const NewTicketScreen(),
+      ),
     );
 
     if (result != null && result is Map<String, dynamic>) {
@@ -43,7 +54,7 @@ class _TicketListScreenState extends State<TicketListScreen> {
   }
 
   void _changeTicketStatus(int index) async {
-    final estados = ['Pendiente', 'En Proceso', 'Entregado'];
+    final estados = ['En Proceso', 'Pendiente', 'Entregado'];
     final currentIndex = estados.indexOf(tickets[index]['estado']);
     final newIndex = (currentIndex + 1) % estados.length;
 
@@ -53,8 +64,11 @@ class _TicketListScreenState extends State<TicketListScreen> {
 
     await dbService.updateTicketStatus(index, estados[newIndex]);
 
+    if (tickets[index]['estado'] == 'Pendiente') {
+      _sendWhatsAppMessage(index);
+    }
+
     if (tickets[index]['estado'] == 'Entregado') {
-      // Retraso de 5 segundos antes de eliminar el ticket
       Future.delayed(const Duration(seconds: 5), () async {
         await dbService.deleteTicket(index);
         setState(() {
@@ -71,11 +85,23 @@ class _TicketListScreenState extends State<TicketListScreen> {
     });
   }
 
-  void _consultarCliente() {
-    // Lógica para consultar cliente
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Consultar cliente: Funcionalidad pendiente"))
-    );
+  void _sendWhatsAppMessage(int index) {
+    final ticket = tickets[index];
+    final String phoneNumber = ticket['celular'];
+    final int cost = ticket['cantidadBolsas'] * costPerBag;
+    final String message =
+        'Hola ${ticket['nombre']}, te informamos que podés pasar a retirar la ropa. El costo es \$${cost}. ¡Gracias por confiar en nosotros!';
+
+    final Uri whatsappUrl =
+        Uri.parse('https://wa.me/$phoneNumber?text=${Uri.encodeComponent(message)}');
+
+    launchUrl(whatsappUrl, mode: LaunchMode.externalApplication).catchError((e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo abrir WhatsApp.')),
+        );
+      }
+    });
   }
 
   @override
@@ -84,22 +110,21 @@ class _TicketListScreenState extends State<TicketListScreen> {
       appBar: AppBar(
         title: const Text(
           'LavApp',
-          style: TextStyle(color: Colors.blue, fontSize: 26, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: Colors.blue,
+            fontSize: 26,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         centerTitle: true,
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.menu, color: Colors.black),
-          onPressed: () {},
+          onPressed: () {
+            Navigator.pushNamed(context, '/preferences');
+          },
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: _consultarCliente, // Llama a la función de consulta
-            color: Colors.blue,
-          ),
-        ],
       ),
       body: tickets.isEmpty
           ? const Center(
@@ -132,7 +157,9 @@ class _TicketListScreenState extends State<TicketListScreen> {
                               ),
                               backgroundColor: tickets[index]['estado'] == 'Entregado'
                                   ? Colors.green
-                                  : (tickets[index]['estado'] == 'En Proceso' ? Colors.orange : Colors.blue),
+                                  : (tickets[index]['estado'] == 'Pendiente'
+                                      ? Colors.orange
+                                      : Colors.blue),
                             ),
                           ),
                         ],
