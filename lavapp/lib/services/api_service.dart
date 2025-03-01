@@ -1,46 +1,27 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import '../models/ticket.dart';
 
 class ApiService {
-  final String baseUrl = 'http://localhost:3000'; // URL de tu API
+    final String baseUrl = 'http://localhost:3008/v1';
 
-  Future<List<Ticket>> fetchTickets() async {
-    final response = await http.get(Uri.parse('$baseUrl/tickets'));
-    if (response.statusCode == 200) {
-      List<dynamic> ticketsJson = json.decode(response.body);
-      return ticketsJson.map((json) => Ticket.fromJson(json)).toList();
-    } else {
-      throw Exception('Failed to load tickets');
-    }
-  }
+    Future<void> sendMessage(String phoneNumber, String message) async {
+        final response = await http.post(
+            Uri.parse('$baseUrl/messages'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+                'number': "$phoneNumber@s.whatsapp.net",
+                'message': message,
+            }),
+        );
 
-  Future<void> createTicket(Ticket ticket) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/tickets'),
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode(ticket.toJson()),
-    );
-    if (response.statusCode != 201) {
-      throw Exception('Failed to create ticket');
+        if (response.statusCode != 200) {
+            print('Error: ${response.statusCode} - ${response.body}');
+            if (response.body.contains('qr code')) {
+                throw Exception('El bot no está autenticado. Escanea el QR code en el backend.');
+            }
+            throw Exception('Error al enviar el mensaje: ${response.body}');
+        } else {
+            print('Mensaje enviado: ${response.body}');
+        }
     }
-  }
-
-  Future<void> updateTicket(int id, Ticket ticket) async {
-    final response = await http.put(
-      Uri.parse('$baseUrl/tickets/$id'),
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode(ticket.toJson()),
-    );
-    if (response.statusCode != 200) {
-      throw Exception('Failed to update ticket');
-    }
-  }
-
-  Future<void> deleteTicket(int id) async {
-    final response = await http.delete(Uri.parse('$baseUrl/tickets/$id'));
-    if (response.statusCode != 200) {
-      throw Exception('Failed to delete ticket');
-    }
-  }
 }
