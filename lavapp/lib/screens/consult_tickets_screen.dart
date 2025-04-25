@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/database_service.dart';
-import 'edit_ticket_screen.dart';
+import '../utils/logger.dart';
 
 class ConsultTicketsScreen extends StatefulWidget {
   const ConsultTicketsScreen({super.key});
@@ -10,154 +10,225 @@ class ConsultTicketsScreen extends StatefulWidget {
 }
 
 class _ConsultTicketsScreenState extends State<ConsultTicketsScreen> {
-  final dbService = DatabaseService();
+  final DatabaseService dbService = DatabaseService();
   List<Map<String, dynamic>> tickets = [];
-  final TextEditingController _searchController = TextEditingController();
+  List<Map<String, dynamic>> filteredTickets = [];
+  String searchQuery = '';
+  bool showAll = false;
 
   @override
   void initState() {
     super.initState();
+    AppLogger.info('Initializing ConsultTicketsScreen');
     _loadTickets();
   }
 
   Future<void> _loadTickets() async {
     try {
-      final data = await dbService.getAllTickets();
-      if (data.isNotEmpty) {
+      AppLogger.info('Loading tickets');
+      final activeTickets = await dbService.getAllTickets();
+      final archivedTickets = await dbService.getAllArchivedTickets();
+      if (mounted) {
         setState(() {
-          tickets = data.reversed.toList(); // Ordena de más nuevo a más viejo
-        });
-      } else {
-        setState(() {
-          tickets = [];
+          tickets = [...activeTickets, ...archivedTickets];
+          filteredTickets = tickets.where((t) {
+            final estado = t['estado'] as String?;
+            return estado != null && (showAll || estado != 'Entregado');
+          }).toList();
+          AppLogger.info('Loaded ${tickets.length} tickets, filtered: ${filteredTickets.length}');
         });
       }
-    } catch (e) {
-      print('Error loading tickets: $e'); // Para depuración
-      setState(() {
-        tickets = [];
-      });
+    } catch (e, stackTrace) {
+      AppLogger.error('Error loading tickets: $e', e, stackTrace);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al cargar tickets: $e')),
+        );
+      }
     }
   }
 
-  Future<void> _searchTickets(String query) async {
+  void _restoreTicket(String docId) {
     try {
-      final data = await dbService.getAllTickets();
-      final filtered = data.where((ticket) {
-        return ticket['celular'].toString().contains(query);
-      }).toList().reversed.toList();
-      setState(() {
-        tickets = filtered.isNotEmpty ? filtered : [];
+      AppLogger.info('Restoring ticket with docId: $docId');
+      dbService.restoreTicket(docId).then((_) {
+        AppLogger.info('Ticket restored successfully');
+        _loadTickets();
+      }).catchError((e, stackTrace) {
+        AppLogger.error('Error restoring ticket: $e', e, stackTrace);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error al restaurar ticket: $e')),
+          );
+        }
       });
-    } catch (e) {
-      print('Error searching tickets: $e'); // Para depuración
-      setState(() {
-        tickets = [];
-      });
+    } catch (e, stackTrace) {
+      AppLogger.error('Error in _restoreTicket: $e', e, stackTrace);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al restaurar ticket: $e')),
+        );
+      }
     }
   }
 
-  Future<void> _editTicket(int index) async {
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => EditTicketScreen(ticket: tickets[index])),
-    );
-    if (result != null && result is Map<String, dynamic>) {
-      await dbService.updateTicketStatus(index, result['estado']);
-      _loadTickets();
+  void _deleteTicket(String docId, bool isArchived) {
+    try {
+      AppLogger.info('Deleting ticket with docId: $docId');
+      dbService.deleteTicket(docId, isArchived: isArchived).then((_) {
+        AppLogger.info('Ticket deleted successfully');
+        _loadTickets();
+      }).catchError((e, stackTrace) {
+        AppLogger.error('Error deleting ticket: $e', e, stackTrace);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error al eliminar ticket: $e')),
+          );
+        }
+      });
+    } catch (e, stackTrace) {
+      AppLogger.error('Error in _deleteTicket: $e', e, stackTrace);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al eliminar ticket: $e')),
+        );
+      }
     }
   }
 
-  Future<void> _deleteTicket(int index) async {
-    await dbService.deleteTicket(index);
-    _loadTickets();
+  void _searchTickets(String query) {
+    AppLogger.info('Searching tickets with query: $query');
+    setState(() {
+      searchQuery = query.toLowerCase();
+      filteredTickets = tickets.where((ticket) {
+        final estado = ticket['estado'] as String?;
+        final nombre = ticket['nombre'] as String? ?? '';
+        final celular = ticket['celular'] as String? ?? '';
+        return (showAll || estado != 'Entregado') &&
+            (nombre.toLowerCase().contains(searchQuery) || celular.toLowerCase().contains(searchQuery));
+      }).toList();
+      AppLogger.info('Filtered tickets: ${filteredTickets.length}');
+    });
   }
 
-  void _returnToMain() {
-    Navigator.pop(context);
+  Future<void> _refresh() async {
+    AppLogger.info('Refreshing tickets');
+    await _loadTickets();
   }
 
   @override
   Widget build(BuildContext context) {
+    AppLogger.info('Building ConsultTicketsScreen');
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Consultar Tickets'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text('Buscar por teléfono'),
-                  content: TextField(
-                    controller: _searchController,
-                    keyboardType: TextInputType.phone,
-                    onChanged: (value) {
-                      _searchTickets(value); // Actualiza en tiempo real
-                    },
-                    decoration: const InputDecoration(hintText: 'Ingrese número'),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () {
-                        _searchController.clear();
-                        _loadTickets();
-                        Navigator.pop(context);
-                      },
-                      child: const Text('Cancelar'),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        _searchTickets(_searchController.text);
-                        Navigator.pop(context);
-                      },
-                      child: const Text('Buscar'),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ],
+        title: const Text('Consultar Tickets', style: TextStyle(color: Colors.white)),
+        backgroundColor: Colors.blue,
       ),
-      body: tickets.isEmpty
-          ? const Center(
-              child: Text(
-                'No hay tickets disponibles',
-                style: TextStyle(color: Colors.grey, fontSize: 16),
-              ),
-            )
-          : ListView.builder(
-              itemCount: tickets.length,
-              itemBuilder: (context, index) {
-                final ticket = tickets[index];
-                return Card(
-                  margin: const EdgeInsets.all(8.0),
-                  child: ListTile(
-                    title: Text("${ticket['nombre']} #${ticket['celular']}"),
-                    subtitle: Text("Estado: ${ticket['estado']}"),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.arrow_back, color: Colors.blue),
-                          onPressed: () => _returnToMain(),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                          onPressed: () => _deleteTicket(index),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.edit, color: Colors.green),
-                          onPressed: () => _editTicket(index),
-                        ),
-                      ],
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    decoration: InputDecoration(
+                      labelText: 'Buscar por nombre o celular',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      filled: true,
+                      fillColor: Colors.grey[100],
                     ),
+                    onChanged: _searchTickets,
                   ),
-                );
-              },
+                ),
+                const SizedBox(width: 10),
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  onPressed: _refresh,
+                ),
+              ],
             ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Checkbox(
+                  value: showAll,
+                  onChanged: (value) {
+                    AppLogger.info('Toggling showAll: $showAll -> $value');
+                    setState(() {
+                      showAll = value ?? false;
+                      _searchTickets(searchQuery);
+                    });
+                  },
+                ),
+                const Text('Mostrar tickets entregados'),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _refresh,
+                child: ListView.builder(
+                  itemCount: filteredTickets.length,
+                  itemBuilder: (context, index) {
+                    final ticket = filteredTickets[index];
+                    final estado = ticket['estado'] as String?;
+                    Color stateColor;
+                    switch (estado) {
+                      case 'En Proceso':
+                        stateColor = Colors.red;
+                        break;
+                      case 'Pendiente':
+                        stateColor = const Color.fromARGB(255, 210, 190, 7);
+                        break;
+                      case 'Entregado':
+                        stateColor = Colors.green;
+                        break;
+                      default:
+                        stateColor = Colors.grey;
+                    }
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 4.0),
+                      child: ListTile(
+                        title: Text('${ticket['nombre'] ?? 'Sin nombre'} #${ticket['celular'] ?? 'Sin celular'}'),
+                        subtitle: Text('Estado: ${ticket['estado'] ?? 'Desconocido'}'),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: stateColor,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                ticket['estado'] ?? 'Desconocido',
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                            ),
+                            if (estado == 'Entregado')
+                              IconButton(
+                                icon: const Icon(Icons.restore, color: Colors.blue),
+                                onPressed: () => _restoreTicket(ticket['docId'] as String),
+                              ),
+                            IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () => _deleteTicket(
+                                ticket['docId'] as String,
+                                estado == 'Entregado',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

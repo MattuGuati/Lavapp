@@ -1,7 +1,7 @@
 plugins {
-    id "com.android.application"
-    id "kotlin-android"
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    id 'com.android.application'
+    id 'com.google.gms.google-services'
+    id 'org.jetbrains.kotlin.android'
     id "dev.flutter.flutter-gradle-plugin"
 }
 
@@ -13,15 +13,14 @@ if (localPropertiesFile.exists()) {
     }
 }
 
-def flutterVersionCode = localProperties.getProperty("flutter.versionCode")
-if (flutterVersionCode == null) {
-    flutterVersionCode = "1"
-}
+def flutterVersionCode = localProperties.getProperty("flutter.versionCode") ?: "1"
+def flutterVersionName = localProperties.getProperty("flutter.versionName") ?: "1.0"
 
-def flutterVersionName = localProperties.getProperty("flutter.versionName")
-if (flutterVersionName == null) {
-    flutterVersionName = "1.0"
-}
+// Lee las credenciales de firma desde local.properties
+def storeFilePath = localProperties.getProperty("storeFile") ?: "../app/keystore.jks"
+def storePass = localProperties.getProperty("storePassword") ?: "Dogchog123"
+def keyAl = localProperties.getProperty("keyAlias") ?: "your_key_alias"
+def keyPass = localProperties.getProperty("keyPassword") ?: "Dogchog123"
 
 android {
     namespace = "com.example.lavapp"
@@ -29,30 +28,107 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.lavapp"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://docs.flutter.dev/deployment/android#reviewing-the-gradle-build-configuration.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutterVersionCode.toInteger()
         versionName = flutterVersionName
     }
 
+    signingConfigs {
+        release {
+            storeFile file(storeFilePath)
+            storePassword storePass
+            keyAlias keyAl
+            keyPassword keyPass
+        }
+        debug {
+
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.debug
+            signingConfig signingConfigs.release
+            minifyEnabled false
+            shrinkResources false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+        debug {
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    // Agrega una tarea personalizada para mover el APK a la ubicación que Flutter espera
+    tasks.whenTaskAdded { task ->
+        if (task.name == 'assembleRelease') {
+            task.finalizedBy 'moveApkToFlutterOutputRelease'
+        } else if (task.name == 'assembleDebug') {
+            task.finalizedBy 'moveApkToFlutterOutputDebug'
+        }
+    }
+
+    task moveApkToFlutterOutputRelease {
+        doLast {
+            def sourcePath = "${projectDir}/build/outputs/apk/release/app-release.apk"
+            def destPath = "${rootProject.projectDir}/../build/app/outputs/flutter-apk/app-release.apk"
+            def destDir = new File("${rootProject.projectDir}/../build/app/outputs/flutter-apk")
+            if (!destDir.exists()) {
+                destDir.mkdirs()
+            }
+            def sourceFile = new File(sourcePath)
+            def destFile = new File(destPath)
+            if (sourceFile.exists()) {
+                copy {
+                    from sourceFile
+                    into destDir
+                }
+                println "Moved APK from $sourcePath to $destPath"
+            } else {
+                println "Source APK not found at $sourcePath"
+            }
+        }
+    }
+
+    task moveApkToFlutterOutputDebug {
+        doLast {
+            def sourcePath = "${projectDir}/build/outputs/apk/debug/app-debug.apk"
+            def destPath = "${rootProject.projectDir}/../build/app/outputs/flutter-apk/app-debug.apk"
+            def destDir = new File("${rootProject.projectDir}/../build/app/outputs/flutter-apk")
+            if (!destDir.exists()) {
+                destDir.mkdirs()
+            }
+            def sourceFile = new File(sourcePath)
+            def destFile = new File(destPath)
+            if (sourceFile.exists()) {
+                copy {
+                    from sourceFile
+                    into destDir
+                }
+                println "Moved APK from $sourcePath to $destPath"
+            } else {
+                println "Source APK not found at $sourcePath"
+            }
+        }
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
     }
 }
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation platform('com.google.firebase:firebase-bom:33.0.0')
+    implementation 'com.google.firebase:firebase-analytics-ktx'
 }

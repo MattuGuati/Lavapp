@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/database_service.dart';
 
 class EditTicketScreen extends StatefulWidget {
   final Map<String, dynamic> ticket;
-
   const EditTicketScreen({super.key, required this.ticket});
 
   @override
@@ -10,87 +11,210 @@ class EditTicketScreen extends StatefulWidget {
 }
 
 class _EditTicketScreenState extends State<EditTicketScreen> {
-  late TextEditingController _nameController;
-  late TextEditingController _phoneController;
-  late TextEditingController _bagsController;
-  String _selectedState = 'En Proceso';
+  late String name;
+  late String phone;
+  late int bagCount;
+  late Map<String, int> extras;
+  late Map<String, int> counterExtras;
+  late String state;
+  final dbService = DatabaseService();
+  List<Map<String, dynamic>> attributes = [];
+  final _nameController = TextEditingController();
+  final _phoneController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: widget.ticket['nombre']);
-    _phoneController = TextEditingController(text: widget.ticket['celular']);
-    _bagsController = TextEditingController(text: widget.ticket['cantidadBolsas'].toString());
-    _selectedState = widget.ticket['estado'];
+    name = widget.ticket['nombre'] ?? '';
+    phone = widget.ticket['celular'] ?? '';
+    bagCount = widget.ticket['cantidadBolsas'] ?? 0;
+    final extrasData = widget.ticket['extras'] ?? <String, dynamic>{};
+    // Construcción segura de mapas con un bucle for
+    extras = {};
+    counterExtras = {};
+    for (var entry in extrasData.entries) {
+      if (entry.key is String && entry.value is int) {
+        if (entry.value == 1) {
+          extras[entry.key as String] = entry.value as int;
+        } else if (entry.value > 1) {
+          counterExtras[entry.key as String] = entry.value as int;
+        }
+      }
+    }
+    state = widget.ticket['estado'] ?? 'En Proceso';
+    _nameController.text = name;
+    _phoneController.text = phone;
+    _loadAttributes();
   }
 
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _phoneController.dispose();
-    _bagsController.dispose();
-    super.dispose();
+  void _loadAttributes() async {
+    final snapshot = await FirebaseFirestore.instance.collection('attributes').get();
+    setState(() {
+      attributes = snapshot.docs.map((doc) => doc.data()..['id'] = doc.id).toList();
+    });
   }
 
-  void _saveChanges() {
-    Navigator.pop(context, {
+  void _incrementBags() => setState(() => bagCount++);
+  void _decrementBags() => setState(() => bagCount > 0 ? bagCount-- : bagCount = 0);
+
+  void _incrementCounterExtra(String name, int price) => setState(() {
+        counterExtras[name] = (counterExtras[name] ?? 0) + 1;
+      });
+  void _decrementCounterExtra(String name, int price) => setState(() {
+        if (counterExtras[name] != null && counterExtras[name]! > 0) {
+          counterExtras[name] = counterExtras[name]! - 1;
+          if (counterExtras[name] == 0) counterExtras.remove(name);
+        }
+      });
+
+  void _toggleExtra(String name, int price, bool hasCounter) {
+    setState(() {
+      if (hasCounter) {
+        if (!counterExtras.containsKey(name)) counterExtras[name] = 0;
+      } else {
+        if (extras.containsKey(name)) {
+          extras.remove(name);
+        } else {
+          extras[name] = price;
+        }
+      }
+    });
+  }
+
+  void _saveTicket() {
+    final updatedTicket = {
       'nombre': _nameController.text,
       'celular': _phoneController.text,
-      'cantidadBolsas': int.tryParse(_bagsController.text) ?? 1,
-      'estado': _selectedState,
-    });
+      'cantidadBolsas': bagCount,
+      'extras': {
+        ...extras,
+        ...counterExtras.map((k, v) => MapEntry(k, v * (attributes.firstWhere((attr) => attr['name'] == k)['price'] as int)))
+      },
+      'estado': state,
+      'usuario': widget.ticket['usuario'],
+      'timestamp': widget.ticket['timestamp'],
+      'docId': widget.ticket['docId'],
+    };
+    Navigator.pop(context, updatedTicket);
+  }
+
+  void _cancel() {
+    Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Editar Ticket"),
-        actions: [
-          IconButton(
-            onPressed: _saveChanges,
-            icon: const Icon(Icons.save),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: Text('Editar Ticket', style: TextStyle(color: Colors.white))),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(labelText: "Nombre"),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _phoneController,
-              decoration: const InputDecoration(labelText: "Celular"),
-              keyboardType: TextInputType.phone,
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _bagsController,
-              decoration: const InputDecoration(labelText: "Cantidad de bolsas"),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 20),
-            const Text("Estado", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            DropdownButton<String>(
-              value: _selectedState,
-              isExpanded: true,
-              items: ['En Proceso', 'Pendiente', 'Entregado']
-                  .map((estado) => DropdownMenuItem(value: estado, child: Text(estado)))
-                  .toList(),
-              onChanged: (value) {
-                if (value != null) {
-                  setState(() {
-                    _selectedState = value;
-                  });
-                }
-              },
-            ),
-          ],
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              TextField(
+                controller: _nameController,
+                decoration: InputDecoration(
+                  labelText: 'Nombre',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  filled: true,
+                  fillColor: Colors.grey[100],
+                ),
+              ),
+              const SizedBox(height: 15),
+              TextField(
+                controller: _phoneController,
+                decoration: InputDecoration(
+                  labelText: 'Teléfono',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  filled: true,
+                  fillColor: Colors.grey[100],
+                ),
+                keyboardType: TextInputType.phone,
+              ),
+              const SizedBox(height: 15),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(icon: Icon(Icons.remove), onPressed: _decrementBags),
+                  Text('$bagCount'),
+                  IconButton(icon: Icon(Icons.add), onPressed: _incrementBags),
+                  const SizedBox(width: 8),
+                  const Text('Cantidad de bolsas'),
+                ],
+              ),
+              const SizedBox(height: 15),
+              DropdownButton<String>(
+                value: state,
+                hint: Text('Selecciona estado'),
+                items: ['En Proceso', 'Pendiente', 'Entregado'].map((String value) {
+                  return DropdownMenuItem<String>(
+                    value: value,
+                    child: Text(value),
+                  );
+                }).toList(),
+                onChanged: (newValue) {
+                  if (newValue != null) {
+                    setState(() {
+                      state = newValue;
+                    });
+                  }
+                },
+              ),
+              const SizedBox(height: 15),
+              ...attributes.map((attr) => attr['hasCounter'] == true
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Checkbox(
+                            value: counterExtras.containsKey(attr['name']),
+                            onChanged: (value) => _toggleExtra(attr['name'], attr['price'] as int, true),
+                          ),
+                          Text('${attr['name']} (\$${attr['price']})'),
+                          IconButton(icon: Icon(Icons.remove), onPressed: () => _decrementCounterExtra(attr['name'], attr['price'] as int)),
+                          Text('${counterExtras[attr['name']] ?? 0}'),
+                          IconButton(icon: Icon(Icons.add), onPressed: () => _incrementCounterExtra(attr['name'], attr['price'] as int)),
+                        ],
+                      ),
+                    )
+                  : Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: CheckboxListTile(
+                        title: Text('${attr['name']} (\$${attr['price']})'),
+                        value: extras.containsKey(attr['name']),
+                        onChanged: (value) => _toggleExtra(attr['name'], attr['price'] as int, false),
+                      ),
+                    )),
+              const SizedBox(height: 20), // Reemplazamos Spacer por SizedBox para evitar el error de flex
+              Padding(
+                padding: const EdgeInsets.only(top: 20.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    ElevatedButton(
+                      onPressed: _saveTicket,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.lightBlue,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: Text('Guardar'),
+                    ),
+                    ElevatedButton(
+                      onPressed: _cancel,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.lightBlue,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: Text('Cancelar'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
